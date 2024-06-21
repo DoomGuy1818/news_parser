@@ -65,3 +65,22 @@
             private string $title;
             private string $description;
         }
+
+
+        class RSSParser implements ParserInterface {
+            public function key(): string
+            {
+                return $this->source->getName();
+            }
+
+            public function parseNews(string $xml): array
+            {
+                $news_array = [];
+                $news = simplexml_load_file($xml);
+                foreach ($news->item as $new) {
+                    array_push($news_array, $news->$new);
+                }
+                return $news_array;
+
+            }
+        }
