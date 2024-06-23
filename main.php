@@ -1,4 +1,10 @@
 <?php
+        require "vendor/autoload.php";
+
+        use Symfony\Component\BrowserKit\HttpBrowser;
+
+        $client = new HttpBrowser();
+
         class News {
            private string $id;
            private string $title;
@@ -11,7 +17,7 @@
         }
 
         class Source {
-        public function __construct( 
+            public function __construct( 
                 private string $id,
                 /**
                  * @var Publisher[]
@@ -23,6 +29,28 @@
             ) {}
             public function type(): string{
                 return $this->type;
+            }
+        }
+
+
+        class ScrapeSource extends Source {
+            public function __construct( 
+                private string $id,
+                /**
+                 * @var Publisher[]
+                 */
+                private array $publishers = [],
+                private string $link,
+                private string $type, //URL
+                private string $summary,
+                private array $selectors = [],
+            ) {
+                $this->selectors["link"] = $this->selectors[0];
+                $this->selectors["title"] = $this->selectors[1];
+                $this->selectors["description"] = $this->selectors[2];
+            }
+            public function getSelector($selector): string{
+                return $this->selectors[$selector];
             }
         }
 
@@ -74,6 +102,7 @@
             private string $id,
             private string $title,
             private string $description,
+            private ?string $link,
             ) {}
         }
 
@@ -102,60 +131,75 @@
             public function toDto(array $items): array {
                 $newsDtos = [];
                 foreach ($items as $item) {
-                    array_push($newsDtos, new NewsDto(uniqid(), $item["title"], $item["description"]));
+                    array_push($newsDtos, new NewsDto(uniqid(), $item["title"], $item["description"], $item["url"]));
                 }
                 return $newsDtos;
             }
         }
 
-        $feed = <<<END
-            {
-                "title": "Latest News",
-                "actions": [
-                    {
-                        "url": "#",
-                        "type": "rss"
-                    },
-                    {
-                        "url": "#",
-                        "type": "envelope"
-                    }
-                ],
-                "items": [
-                    {
-                        "title": "Job shadowing sparks students' career potential",
-                        "url": "#",
-                        "description": "Job shadow program connects record number of students with potential employers, and helps alumni give back."
-                    },
-                    {
-                        "title": "Breaking down barriers, leading equality",
-                        "url": "#",
-                        "description": "Fourth-year medical student encourages openness, involvement for LGBTQ community on campus."
-                    },
-                    {
-                        "title": "Surge in designer drugs, tainted 'E' poses lethal risks",
-                        "url": "#",
-                        "description": "With up to 10 new designer drugs flooding streets every year, more education is needed to convey risks, especially among youth, say UAlberta researchers."
-                    },
-                    {
-                        "title": "UAlberta set to bask in a rainbow of pride",
-                        "url": "#",
-                        "description": "Beginning Feb. 26, Pride Week celebrates an often invisible campus population."
-                    },
-                    {
-                        "title": "Crowding around campus projects",
-                        "url": "#",
-                        "description": "U of A looks to crowdfunding to help launch first Alberta-made satellite, support other campus projects."
-                    }
-                ],
-                "moreLink" : {
-                    "url": "#",
-                    "label":"Read more news"
-                }
+
+        class NewsURLScraper implements ParserInterface {
+            public function __construct(
+                private readonly ScrapeSource $source,
+                private HttpBrowser $client
+            ){}
+
+            public function key(): string{
+                return $this->source->getName();
             }
-            END;
+
+            public function parseNews(string $news_feed): array
+            {
+                $items = [];
+
+                $crawler = $this->client->request('GET', $news_feed);
+                $links = $crawler->filter($this->source->getSelector("link"))->links();
+
+                foreach ($links as $link) {
+                    $crawler = $this->client->request('GET', $link->getUri());
 
 
-            $sourceExample = new Source(uniqid(), ["test"], "test", "json", "test");
-            $newsParser = new NewsParser($sourceExample);
-            echo var_dump($newsParser->parseNews($feed));
+                    $crawler->filter(
+                        $this->source->getSelector("title"))->each(function ($node) use (&$title) {
+                            $title = $node->text();
+                    });
+
+                    $crawler->filter(
+                        $this->source->getSelector("description"))->each(function ($node) use (&$description) {
+                            $description = $node->text();
+                    });
+                    array_push(
+                        $items, 
+                        [
+                            "title" => $title, 
+                            "description" => $description, 
+                            "link" => $link->getUri(),
+                        ]);
+                }
+
+                return ($this->toDto($items));
+            }
+
+            public function toDto(array $items): array {
+                $newsDtos = [];
+                foreach ($items as $item) {
+                    array_push($newsDtos, new NewsDto(uniqid(), $item["title"], $item["description"], $item["link"]));
+                }
+                return $newsDtos;
+            }
+        }
+
+        $sourceExample = new ScrapeSource(
+            uniqid(), 
+            ["test"], 
+            "test", 
+            "url", 
+            "test",
+            [
+                "div.main__list\ js-main-news-list a.main__feed__link\ js-yandex-counter\ js-visited",
+                "h1[itemprop=\"headline\"]",
+                "div[itemprop=\"articleBody\"] p"
+            ]
+        );
+        $newsScraper = new NewsURLScraper($sourceExample, $client);
+        echo var_dump($newsScraper->parseNews("https://t.rbc.ru/"));
