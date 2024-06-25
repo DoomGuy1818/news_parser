@@ -19,6 +19,11 @@ class Source {
     private string $link;
     private string $type; //XML HTML JSON
     private string $summary;
+
+    public function getType(): string
+    {
+        return $this->type;
+    }
 }
 
 class Publisher{
@@ -90,14 +95,31 @@ class RSSParser implements ParserInterface {
     }
 }
 
-class RSSParserFactory implements ParserFactoryInterface {
-    public function createParser(): ParserInterface
-    {
-        return new RSSParser();
+//class RSSParserFactory implements ParserFactoryInterface {
+//    public function createParser(): ParserInterface
+//    {
+//        return new RSSParser();
+//    }
+//}
+
+class ParserFactory
+{
+    public function __construct(
+        /*
+         *  @var array<string, ParserFactoryInterface>
+         */
+        private readonly array $factories
+    ) {}
+
+    public function parserFromSource(Source $source){
+        if (isset($this->factories[$source->getType()])) {
+            return $this->factories[$source->getType()];
+        }
+        return new NullParser();
     }
 }
 
-function createObject(ParserFactoryInterface $factory) {
+function createObject(ParserFactoryInterface $factory) {     //Фабричный метод используется внутри класса, который создаёт своих потомков
     $parser = $factory->createParser();
     return $parser;
 }
@@ -140,8 +162,8 @@ $xml = <<<XML
 XML;
 
 
-$parserFactory = new RSSParserFactory();
-$parser = createObject($parserFactory);
-$news = $parser->parseNews($xml);
+//$parserFactory = new RSSParserFactory();
+//$parser = createObject($parserFactory);
+//$news = $parser->parseNews($xml);
 
-var_dump($news);
+//var_dump($news);
